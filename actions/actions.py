@@ -17,7 +17,12 @@
 import sys
 import os
 sys.path.append('hooks/')
-from charmhelpers.core.hookenv import action_fail
+from charmhelpers.core.hookenv import log, action_set, action_fail
+
+import xml.etree.ElementTree as ET
+
+from subprocess import check_output, CalledProcessError
+
 from utils import (
     pause_unit,
     resume_unit,
@@ -36,8 +41,28 @@ def resume(args):
     @raises Exception should the service fail to start."""
     resume_unit()
 
+def cleanup(args):
+    """Cleans up any clonesets"""
+    try:
+        out = check_output(['crm', 'configure', 'show', 'xml']).decode('UTF-8')
+    except CalledProcessError as e:
+        log(e)
+        action_fail("crm config show failed with error: {}".format(e.message))
 
-ACTIONS = {"pause": pause, "resume": resume}
+    root = ET.fromstring(out)
+
+    for clone in root.findall('./configuration/resources/clone/primitive'):
+        str = "crm resource cleanup %s" % (clone.attrib['id'])
+        cmd = str.split()
+        try:
+            cleanup = check_output(cmd).decode('UTF-8')
+            action_set({'message': cleanup})
+        except CalledProcessError as e:
+            log(e)
+            action_fail("crm cleanup failed with error: {}".format(e.message))
+
+
+ACTIONS = {"pause": pause, "resume": resume, "cleanup": cleanup}
 
 
 def main(args):
